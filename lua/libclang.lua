@@ -5,7 +5,13 @@ if clang_root:sub( -1 ) == '/' then
 end
 local clang_ffi_loader = require( 'clang_ffi_load' )
 local ffi = clang_ffi_loader.load_clang_ffi( clang_root )
-local C = ffi.load( clang_root .. '/lib/libclang.dylib' )
+local clang_library_path = ''
+if jit.os == 'OSX' then
+    clang_library_path = clang_root .. '/lib/libclang.dylib'
+else
+    clang_library_path = clang_root .. '/lib/libclang.so'
+end
+local C = ffi.load( clang_library_path )
 local bit = require( "bit" )
 
 -- helper functions for clang -------------------------------------------------

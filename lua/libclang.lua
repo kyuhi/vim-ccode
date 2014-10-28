@@ -1,5 +1,5 @@
 #!/usr/bin/env luajit
-local clang_root = os.getenv( 'VIM_CCODE_CLANG_ROOT_DIRECTORY' )
+local clang_root = os.getenv( 'VIM_CCODE_CLANG_ROOT_DIRECTORY_FOR_LUAJIT' )
 if clang_root:sub( -1 ) == '/' then
     clang_root = clang_root:sub(1, -2)
 end

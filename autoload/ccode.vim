@@ -149,7 +149,6 @@ lua << EOL
         local start = completions:searchLeftIndex( query )
         for i=start, completions:numDatas() do
             if #results >= max_displays then
-                -- 
                 vim.command( 'call s:complete_after_insertion()' )
                 break
             end
@@ -283,10 +282,7 @@ elseif !s:has_libclang()
         \ 'to clang root library directory if you want to use ccode.' )
     finish
 else
-    " this is a bad manner. lua of the plugin uses the environment to load
-    " dynamic library and include file. but lua can not expand directory name
-    " like '~/', so I have to break the environment unwillingly.
-    let $VIM_CCODE_CLANG_ROOT_DIRECTORY =
+    let $VIM_CCODE_CLANG_ROOT_DIRECTORY_FOR_LUAJIT =
         \ expand( $VIM_CCODE_CLANG_ROOT_DIRECTORY )
 lua << EOL
     package.path = package.path .. ';' .. vim.eval('s:script_root_dir') .. '/lua/?.lua'

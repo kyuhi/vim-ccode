@@ -13,11 +13,11 @@ function vimhelper.bufferData( filename_or_bufno )
 end
 
 function vimhelper.fileType()
-    return vim.eval('&filetype')
+    return vim.eval( '&filetype' )
 end
 
 function vimhelper.currentDir()
-    return vim.eval('expand("%:p:h")')
+    return vim.eval( 'expand("%:p:h")' )
 end
 
 function vimhelper.toLuaList( vim_list )
@@ -48,10 +48,6 @@ function FlagsStore:new()
     return setmetatable( { flags_cache={} }, FlagsStore_MT )
 end
 
-function FlagsStore:setEvalString( vim_func_name )
-    self.eval_string = vim_func_name
-end
-
 function FlagsStore:defaultCompilerFlags()
     local current_dir = vimhelper.currentDir()
     local ft = vimhelper.fileType()
@@ -70,7 +66,7 @@ function FlagsStore:defaultCompilerFlags()
             '-I/usr/include', '-I' .. current_dir,
         },
         objcpp = {
-            'objective-c++',
+            '-x', 'objective-c++',
             '-I/usr/include', '-I' .. current_dir,
         }
     }
@@ -92,22 +88,28 @@ function FlagsStore:isEqualFlags( a, b )
     return true
 end
 
+function FlagsStore:userVimCompletionFuncname()
+    return vimhelper.eval( 'g:ccode#completion_flags_function' )
+end
+
 function FlagsStore:flags( filename )
     local flags = self.flags_cache[ filename ]
     if flags then
         return flags
-    elseif not self.eval_string then
+    elseif self:userVimCompletionFuncname() == '' then
         -- default compliler flags
-        local flags = self:defaultCompilerFlags()
+        flags = self:defaultCompilerFlags()
         self.flags_cache[ filename ] = flags
         return flags
     else -- user defined flags
-         -- TODO: error check
-        local flags = vimhelper.toLuaList(
-                        vimhelper.eval( self.eval_string ) )
+        local funcname = self:userVimCompletionFuncname()
+        flags = {}
+        if funcname ~= '' then
+            flags = vimhelper.toLuaList( vimhelper.eval( funcname .. '()' ) )
+        end
         self.flags_cache[ filename ] = flags
-        return flags
     end
+    return flags
 end
 
 
@@ -134,9 +136,9 @@ function UserDataStore:userDataForCurrentFile()
     }
     --]]
     local user_data = {}
-    user_data.filename = vim.eval('expand("%:p")') -- TODO: improve
-    user_data.line = vim.eval('line(".")')
-    user_data.column = vim.eval('col(".")')
+    user_data.filename = vim.eval( 'expand("%:p")' )
+    user_data.line = vim.eval( 'line(".")' )
+    user_data.column = vim.eval( 'col(".")' )
     local filecontents = vimhelper.bufferData( user_data.filename )
     user_data.unsaved_files = { -- TODO: improve
         { filename = user_data.filename, contents=filecontents }
@@ -152,10 +154,6 @@ end
 
 function UserDataStore:flagsForFile( filename )
     return self.flags_store:flags( filename )
-end
-
-function UserDataStore:setVimEvalStringForFlags( eval_str )
-    self.flags_store:setEvalString( eval_str )
 end
 
 local _M = {

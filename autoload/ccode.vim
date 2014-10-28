@@ -12,6 +12,8 @@ let g:ccode#max_display_keywords =
     \ get( g:, 'ccode#max_display_keywords', 50 )
 let g:ccode#parse_when_loaded =
     \ get( g:, 'ccode#parse_when_loaded', 0 )
+let g:ccode#parse_when_cursorhold =
+    \ get( g:, 'ccode#parse_when_cursorhold', 1 )
 let g:ccode#completion_flags_function =
     \ get( g:, 'ccode#completion_flags_function', '' )
 let g:ccode#quiet =
@@ -36,8 +38,11 @@ func! ccode#load_file()
     augroup ccode_auto_cmd
         au!
         autocmd InsertLeave <buffer> call s:handle_insert_leave()
-        autocmd CursorHold <buffer> call ccode#parse()
+        autocmd CursorHold <buffer> call s:handle_cursorhold()
     augroup end
+
+    command! -buffer CCodeShowDiagnostics echo ccode#get_quickfixlist()
+    command! -buffer CCodeShowCompletionFlags echo ccode#get_complete_flags()
 
     let s:use_cache = 0
     call s:clear_completion_cache()
@@ -62,11 +67,6 @@ func! ccode#complete( findstart, base )
         endif
         return s:compute_candidates_for_query( a:base )
     endif
-endfunc
-
-
-func! ccode#show_diagnostics()
-    echo ccode#get_quickfixlist()
 endfunc
 
 
@@ -104,11 +104,6 @@ EOL
         endfor
     endfor
     return l:qflist
-endfunc
-
-
-func! ccode#show_complete_flags()
-    echo ccode#get_complete_flags()
 endfunc
 
 
@@ -206,6 +201,12 @@ func! s:handle_insert_leave()
     call s:clear_completion_cache()
 endfunc
 
+func! s:handle_cursorhold()
+    if g:ccode#parse_when_cursorhold
+        call ccode#parse()
+    endif
+endfunc
+
 
 func! s:clear_completion_cache()
     lua ccode.completer:resetCache()
@@ -249,7 +250,7 @@ endfunc
 
 
 func! s:has_libclang()
-    return finddir( $VIM_CCODE_CLANG_ROOT_DIRECTORY ) ? 1 : 0
+    return finddir( $VIM_CCODE_CLANG_ROOT_DIRECTORY ) != '' ? 1 : 0
 endfunc
 
 
@@ -282,8 +283,13 @@ elseif !s:has_libclang()
         \ 'to clang root library directory if you want to use ccode.' )
     finish
 else
+    " this is a bad manner. lua of the plugin uses the environment to load
+    " dynamic library and include file. but lua can not expand directory name
+    " like '~/', so I have to break the environment unwillingly.
+    let $VIM_CCODE_CLANG_ROOT_DIRECTORY =
+        \ expand( $VIM_CCODE_CLANG_ROOT_DIRECTORY )
 lua << EOL
-    package.path = vim.eval('s:script_root_dir') .. '/lua/?.lua'
+    package.path = package.path .. ';' .. vim.eval('s:script_root_dir') .. '/lua/?.lua'
     ccode = {
             completer = require( 'clang_completer' ).completer,
             vim_user_data = require( 'vim_user_data' ).user_data_store,

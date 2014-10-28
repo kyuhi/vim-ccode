@@ -1,4 +1,3 @@
-
 local function removed_macro( header_text )
     header_text = header_text:gsub( "/%*.-%*/", "" )
     header_text = header_text:gsub( "#%s*define.-[^\\]\n", "" )

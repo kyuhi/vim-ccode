@@ -10,6 +10,8 @@ let s:script_root_dir = escape( expand( "<sfile>:p:h:h" ), '\' )
 " global options -------------------------------------------------------------
 let g:ccode#quiet =
     \ get( g:, 'ccode#quiet', 0 )
+let g:ccode#split_when_goto =
+    \ get( g:, 'ccode#split_when_goto', 1 )
 let g:ccode#parse_when_loaded =
     \ get( g:, 'ccode#parse_when_loaded', 0 )
 let g:ccode#max_display_keywords =
@@ -229,7 +231,8 @@ func! s:goto_location( location )
         call s:echo_warning( 'could not jump to location to definition.' )
         return
     endif
-    let goto_command = 'edit ' . a:location.filename
+    let goto_command = (g:ccode#split_when_goto ? 'split ' : 'edit ' )
+                     \ . a:location.filename
     if a:location.filename != expand('%:p')
         exec goto_command
     else

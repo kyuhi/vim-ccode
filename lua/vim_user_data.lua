@@ -2,7 +2,7 @@
 local vimhelper = {}
 function vimhelper.bufferData( filename_or_bufno )
     local b = vim.buffer( filename_or_bufno )
-    if #b == 0 then
+    if not b or #b == 0 then
         return ''
     end
     local blist = {}

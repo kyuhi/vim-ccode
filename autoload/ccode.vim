@@ -8,16 +8,18 @@ let s:script_root_dir = escape( expand( "<sfile>:p:h:h" ), '\' )
 
 
 " global options -------------------------------------------------------------
-let g:ccode#max_display_keywords =
-    \ get( g:, 'ccode#max_display_keywords', 50 )
-let g:ccode#parse_when_loaded =
-    \ get( g:, 'ccode#parse_when_loaded', 0 )
-let g:ccode#parse_when_cursorhold =
-    \ get( g:, 'ccode#parse_when_cursorhold', 1 )
-let g:ccode#completion_flags_function =
-    \ get( g:, 'ccode#completion_flags_function', '' )
 let g:ccode#quiet =
     \ get( g:, 'ccode#quiet', 0 )
+let g:ccode#parse_when_loaded =
+    \ get( g:, 'ccode#parse_when_loaded', 0 )
+let g:ccode#max_display_keywords =
+    \ get( g:, 'ccode#max_display_keywords', 50 )
+let g:ccode#parse_when_cursorhold =
+    \ get( g:, 'ccode#parse_when_cursorhold', 1 )
+let g:ccode#omni_completion_disable =
+    \ get( g:, 'g:ccode#omni_completion_disable', 0 )
+let g:ccode#completion_flags_function =
+    \ get( g:, 'ccode#completion_flags_function', '' )
 
 
 " global functions -----------------------------------------------------------
@@ -32,8 +34,10 @@ func! ccode#load_file()
     " at that time, candidates of completion is reduced by character inserted.
     " if `longest` option is set, the first candidate is selected automatically
     " and reduce necessary candidates unfortunately.
-    setlocal completeopt-=longest
-    setlocal omnifunc=ccode#complete
+    if !g:ccode#omni_completion_disable
+        setlocal completeopt-=longest
+        setlocal omnifunc=ccode#complete
+    endif
 
     augroup ccode_auto_cmd
         au!
@@ -43,6 +47,13 @@ func! ccode#load_file()
 
     command! -buffer CCodeShowDiagnostics echo ccode#get_quickfixlist()
     command! -buffer CCodeShowCompletionFlags echo ccode#get_complete_flags()
+    command! -buffer CCodeGotoDefinition
+        \ call s:goto_location( ccode#get_location_to_definition() )
+    command! -buffer CCodeGotoDeclaration
+        \ call s:goto_location( ccode#get_location_to_declaration() )
+    command! -buffer CCodeGoto
+        \ call s:goto_location(
+            \ ccode#get_location_to_declaration_or_definition() )
 
     let s:use_cache = 0
     call s:clear_completion_cache()
@@ -70,14 +81,33 @@ func! ccode#complete( findstart, base )
 endfunc
 
 
+func! ccode#get_location_to_declaration_or_definition()
+    let loc = ccode#get_location_to_declaration()
+    if empty( loc )
+        let loc = ccode#get_location_to_definition()
+    endif
+    return loc
+endfunc
+
+
+func! ccode#get_location_to_definition()
+    return s:get_location_to( 'definition' )
+endfunc
+
+
+func! ccode#get_location_to_declaration()
+    return s:get_location_to( 'declaration' )
+endfunc
+
+
 func! ccode#get_quickfixlist()
     if !s:is_available_this_file()
         return []
     endif
-    let l:qflist = []
+    let qflist = []
 lua << EOL
 do
-    local qflist = vim.eval('l:qflist')
+    local qflist = vim.eval('qflist')
     local user_data = ccode.vim_user_data:userDataForCurrentFile()
     ccode.completer:update( user_data )
     local diagnostics = ccode.completer:getDiagnostics( user_data )
@@ -96,12 +126,8 @@ do
     end
 end
 EOL
-    for qfdict in l:qflist " convert float values into integers.
-        for key in keys( qfdict )
-            if type(qfdict[key]) == type(3.14)
-                let qfdict[key] = float2nr( qfdict[key] )
-            endif
-        endfor
+    for i in range( len(qflist) )
+        let qflist[ i ] = s:convert_members_float2integer( qflist[i] )
     endfor
     return l:qflist
 endfunc
@@ -178,8 +204,8 @@ func! s:handle_completion_if_needed()
         autocmd!
     augroup end
     if v:char =~ '\w'
-        " \<c-p> is necessary because default invoked completion select the
-        " first candidate automatically. user seems not to like this behavior.
+        " \<c-p> is necessary because default completion select the
+        " first candidate automatically. user seems to unexpect this behavior.
         let s:use_cache = 1
         call feedkeys("\<c-x>\<c-o>\<c-p>", "n")
     endif
@@ -200,6 +226,7 @@ func! s:handle_insert_leave()
     call s:clear_completion_cache()
 endfunc
 
+
 func! s:handle_cursorhold()
     if g:ccode#parse_when_cursorhold
         call ccode#parse()
@@ -209,6 +236,57 @@ endfunc
 
 func! s:clear_completion_cache()
     lua ccode.completer:resetCache()
+endfunc
+
+
+func! s:goto_location( location )
+    normal! m'
+    if empty( a:location )
+        call s:echo_warning( 'could not jump to location to definition.' )
+        return
+    endif
+    if a:location.filename != expand('%:p')
+        exec 'edit ' . a:location.filename
+    endif
+    call cursor( a:location.lnum, a:location.col )
+    normal! zt
+endfunc
+
+
+func! s:get_location_to( definition_or_declaration )
+    let command = ''
+    if a:definition_or_declaration == 'definition'
+        let command = 'locationToDefinition'
+    elseif a:definition_or_declaration == 'declaration'
+        let command = 'locationToDeclaration'
+    else " invalid command
+        echoerr printf("invalid command: %s", a:definition_or_declaration)
+    endif
+    let location = {}
+lua << EOL
+do
+    local command = vim.eval('command')
+    local user_data = ccode.vim_user_data:userDataForCurrentFile()
+    local loc = ccode.completer[ command ]( ccode.completer, user_data )
+    local vimlocation = vim.eval('location')
+    if loc then
+        vimlocation.lnum = loc.line
+        vimlocation.col = loc.column
+        vimlocation.filename = loc.filename
+    end
+end
+EOL
+    return s:convert_members_float2integer( location )
+endfunc
+
+
+func! s:convert_members_float2integer( dict )
+    for key in keys( a:dict )
+        if type( a:dict[ key ] ) == type( 3.14 )
+            let a:dict[ key ] = float2nr( a:dict[ key ] )
+        endif
+    endfor
+    return a:dict
 endfunc
 
 

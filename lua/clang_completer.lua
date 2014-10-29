@@ -54,6 +54,20 @@ function ClangCompleter:update( user_data )
     end
 end
 
+function ClangCompleter:locationToDefinition( user_data )
+    local tu = self:translationUnit( user_data )
+    return tu:locationToDefinition( user_data.line,
+                                    user_data.column,
+                                    user_data.unsaved_files )
+end
+
+function ClangCompleter:locationToDeclaration( user_data )
+    local tu = self:translationUnit( user_data )
+    return tu:locationToDeclaration( user_data.line,
+                                     user_data.column,
+                                     user_data.unsaved_files )
+end
+
 function ClangCompleter:translationUnit( user_data )
     -- return the translation unit if exists.
     local filename = user_data.filename

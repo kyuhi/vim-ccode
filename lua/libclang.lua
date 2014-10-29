@@ -15,14 +15,16 @@ local C = ffi.load( clang_library_path )
 local bit = require( "bit" )
 
 -- helper functions for clang -------------------------------------------------
-local function defaultCodeCompleteOptions()
-    return C.clang_defaultCodeCompleteOptions()
-end
 
-local function defaultEditingOptions()
-    return ffi.cast( 'unsigned',
-                     bit.bor( C.CXTranslationUnit_DetailedPreprocessingRecord,
-                              C.clang_defaultEditingTranslationUnitOptions() ) )
+
+local function isCxCursorInValid( cx_cursor )
+    -- compare int to lua number
+    if not ( C.clang_Cursor_isNull( cx_cursor ) == 0 ) then
+        return true
+    elseif not( C.clang_isInvalid( C.clang_getCursorKind( cx_cursor ) ) == 0 ) then
+        return true
+    end
+    return false
 end
 
 local CompletionDataKindsChars = {
@@ -331,7 +333,7 @@ local TranslationUnit_MT = { __index = TranslationUnit }
 function TranslationUnit:new( index, filename, unsaved_files, flags )
     local cflags, nflags = lua2Cstrings( flags )
     local cxunsaved, n_cxunsaved = lua2CunsavedFiles( unsaved_files )
-    local options = defaultEditingOptions()
+    local options = TranslationUnit.editingOptions()
     local tu = C.clang_parseTranslationUnit( index,
                                              filename,
                                              cflags,
@@ -348,7 +350,7 @@ function TranslationUnit:new( index, filename, unsaved_files, flags )
         C.clang_disposeTranslationUnit( tu )
         return nil
     end
-    return setmetatable( { tu=tu }, TranslationUnit_MT )
+    return setmetatable( { tu=tu, filename=filename }, TranslationUnit_MT )
 end
 
 function TranslationUnit:codeCompletionAt( filename, line, column, unsaved_files )
@@ -360,29 +362,69 @@ function TranslationUnit:codeCompletionAt( filename, line, column, unsaved_files
                                         column,
                                         ufiles,
                                         nu,
-                                        defaultCodeCompleteOptions())
+                                        TranslationUnit.codeCompleteOptions() )
     return CodeCompletionResults:new( cx_completions )
 end
 
 function TranslationUnit:update( unsaved_files )
+    self:updateWithOptions( unsaved_files, TranslationUnit.editingOptions() )
+end
+
+function TranslationUnit:updateWithOptions( unsaved_files, options )
     local ufiles, nu = lua2CunsavedFiles( unsaved_files )
     local bad = C.clang_reparseTranslationUnit(
                                         self.tu,
                                         nu,
                                         ufiles,
-                                        defaultEditingOptions() )
+                                        options )
     if bad then
         -- TODO: error check
-        return nil
     end
 end
+
+function TranslationUnit:locationToDefinition( line, column, unsaved_files )
+    self:updateWithOptions( unsaved_files, TranslationUnit.indexingOptions() )
+    local cx_cursor = self:getLocationOfCXCursor( line, column )
+    if isCxCursorInValid( cx_cursor ) then
+        return nil
+    end
+    local cx_definition_cursor = C.clang_getCursorDefinition( cx_cursor )
+    if isCxCursorInValid( cx_definition_cursor ) then
+        return nil
+    end
+    return Location:new( C.clang_getCursorLocation( cx_definition_cursor ) )
+end
+
+function TranslationUnit:locationToDeclaration( line, column, unsaved_files )
+    self:updateWithOptions( unsaved_files, TranslationUnit.indexingOptions() )
+    local cx_cursor = self:getLocationOfCXCursor( line, column )
+    if isCxCursorInValid( cx_cursor ) then
+        return nil
+    end
+    local cx_declaration_cursor = C.clang_getCursorReferenced( cx_cursor )
+    if isCxCursorInValid( cx_declaration_cursor ) then
+        return nil
+    end
+    return Location:new( C.clang_getCursorLocation( cx_declaration_cursor ) )
+end
+
+
+function TranslationUnit:getLocationOfCXCursor( line, column )
+    local cxfile = C.clang_getFile( self.tu, self.filename )
+    local cx_location = C.clang_getLocation( self.tu,
+                                             cxfile,
+                                             line,
+                                             column )
+    return C.clang_getCursor( self.tu, cx_location )
+end
+
 
 function TranslationUnit:getDiagnostics()
     local num = C.clang_getNumDiagnostics( self.tu )
     local diagnostics = {}
     for i=0, (num-1) do
         local cx_diagnostic = ffi.gc( C.clang_getDiagnostic( self.tu, i ),
-                                   C.clang_disposeDiagnostic )
+                                      C.clang_disposeDiagnostic )
         diagnostics[ i + 1 ] = Diagnostic:new( cx_diagnostic )
     end
     return diagnostics
@@ -393,6 +435,22 @@ function TranslationUnit:dispose()
         C.clang_disposeTranslationUnit( self.tu )
         self.tu = nil
     end
+end
+
+function TranslationUnit.codeCompleteOptions()
+    return C.clang_defaultCodeCompleteOptions()
+end
+
+function TranslationUnit.editingOptions()
+    return ffi.cast( 'unsigned',
+                     bit.bor( C.CXTranslationUnit_DetailedPreprocessingRecord,
+                              C.clang_defaultEditingTranslationUnitOptions() ) )
+end
+
+function TranslationUnit.indexingOptions()
+    return ffi.cast( 'unsigned',
+                     bit.bor( C.CXTranslationUnit_PrecompiledPreamble,
+                              C.CXTranslationUnit_SkipFunctionBodies ) )
 end
 
 function TranslationUnit:__gc()

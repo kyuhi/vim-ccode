@@ -65,7 +65,7 @@ endfunc
 
 func! ccode#parse()
     lua ccode.completer:update(
-                \ ccode.vim_user_data:userDataForCurrentFile() )
+                \ ccode.vimhelper.user_data:makeUserData() )
 endfunc
 
 
@@ -108,19 +108,13 @@ func! ccode#get_quickfixlist()
 lua << EOL
 do
     local qflist = vim.eval('qflist')
-    local user_data = ccode.vim_user_data:userDataForCurrentFile()
+    local user_data = ccode.vimhelper.user_data:makeUserData()
     ccode.completer:update( user_data )
     local diagnostics = ccode.completer:getDiagnostics( user_data )
     for __, diag in ipairs( diagnostics ) do
         if diag.kind ~= 'I' then
             local result = vim.dict()
-            local loc = diag.location
-            result.bufnr = vim.eval( string.format('bufnr("%s")', loc.filename) )
-            result.lnum = loc.line
-            result.col = loc.column
-            result.text = diag.text
-            result.type = diag.kind
-            result.valid = 1
+            ccode.vimhelper.setDiagnosticToQuickfix( result, diag )
             qflist:add( result )
         end
     end
@@ -139,7 +133,7 @@ lua << EOL
 do
     local flags = vim.eval('flags')
     local filename = vim.eval('expand("%:p")')
-    local lua_flags = ccode.vim_user_data:flagsForFile( filename )
+    local lua_flags = ccode.vimhelper.user_data:flagsForFile( filename )
     for __, flag in ipairs( lua_flags ) do
         flags:add( flag )
     end
@@ -169,8 +163,7 @@ lua << EOL
         local max_displays = vim.eval(
                             'g:ccode#max_display_keywords' )
         local nq = #query
-        local user_data =
-            ccode.vim_user_data:userDataForCurrentFile()
+        local user_data = ccode.vimhelper.user_data:makeUserData()
         local completions = ccode.completer:codeCompleteAt( user_data )
         local start = completions:searchLeftIndex( query )
         for i=start, completions:numDatas() do
@@ -180,16 +173,8 @@ lua << EOL
             end
             local data = completions:dataAt( i )
             if data:startsWithUpper( query, nq ) then
-                -- TODO: should i support snippets?
                 local d = vim.dict()
-                d.abbr = data:getSyntax()
-                d.word = data:getName()
-                -- d.word = data:getPlaceholder('$\\\\', '\\\\')
-                d.menu = data:getReturnType()
-                d.kind = data:getKind()
-                d.info = data:getFullSyntax()
-                d.icase = '1'
-                -- d.dup = '1'
+                ccode.vimhelper.setCompletionDataToDict( d, data )
                 results:add( d )
             end
         end -- for
@@ -240,13 +225,15 @@ endfunc
 
 
 func! s:goto_location( location )
-    normal! m'
     if empty( a:location )
         call s:echo_warning( 'could not jump to location to definition.' )
         return
     endif
+    let goto_command = 'edit ' . a:location.filename
     if a:location.filename != expand('%:p')
-        exec 'edit ' . a:location.filename
+        exec goto_command
+    else
+        exec 'keepjumps ' . goto_command
     endif
     call cursor( a:location.lnum, a:location.col )
     normal! zt
@@ -259,21 +246,17 @@ func! s:get_location_to( definition_or_declaration )
         let command = 'locationToDefinition'
     elseif a:definition_or_declaration == 'declaration'
         let command = 'locationToDeclaration'
-    else " invalid command
+    else " logic error
         echoerr printf("invalid command: %s", a:definition_or_declaration)
     endif
     let location = {}
 lua << EOL
 do
     local command = vim.eval('command')
-    local user_data = ccode.vim_user_data:userDataForCurrentFile()
+    local user_data = ccode.vimhelper.user_data:makeUserData()
     local loc = ccode.completer[ command ]( ccode.completer, user_data )
     local vimlocation = vim.eval('location')
-    if loc then
-        vimlocation.lnum = loc.line
-        vimlocation.col = loc.column
-        vimlocation.filename = loc.filename
-    end
+    ccode.vimhelper.setLocationToDict( vimlocation, loc )
 end
 EOL
     return s:convert_members_float2integer( location )
@@ -301,7 +284,7 @@ func! s:is_available_this_file()
 lua << EOL
 do
     local filename = vim.eval( 'expand("%:p")' )
-    if not ccode.vim_user_data:isAvailable( filename ) then
+    if not ccode.vimhelper.user_data:isAvailable( filename ) then
         vim.command('let l:available = 0')
     end
 end
@@ -363,11 +346,14 @@ else
     let $VIM_CCODE_CLANG_ROOT_DIRECTORY_FOR_LUAJIT =
         \ expand( $VIM_CCODE_CLANG_ROOT_DIRECTORY )
 lua << EOL
-    package.path = package.path .. ';' .. vim.eval('s:script_root_dir') .. '/lua/?.lua'
+do
+    local include_path = vim.eval('s:script_root_dir') .. '/lua/?.lua'
+    package.path = package.path .. ';' .. include_path
     ccode = {
             completer = require( 'clang_completer' ).completer,
-            vim_user_data = require( 'vim_user_data' ).user_data_store,
+            vimhelper = require( 'vim_user_data' ),
     }
+end
 EOL
 endif
 

@@ -1,7 +1,6 @@
 -- ** vim-helper **
 local vimhelper = {}
-function vimhelper.bufferData( filename_or_bufno )
-    local b = vim.buffer( filename_or_bufno )
+function vimhelper.bufferData( b )
     if not b or #b == 0 then
         return ''
     end
@@ -40,6 +39,55 @@ function vimhelper.eval( vim_string )
     return vim.eval( vim_string )
 end
 
+function vimhelper.setDiagnosticToQuickfix( qf, diag )
+    local loc = diag.location
+    qf.bufnr = vim.eval( string.format('bufnr("%s")', loc.filename) )
+    qf.lnum = loc.line
+    qf.col = loc.column
+    qf.text = diag.text
+    qf.type = diag.kind
+    qf.valid = 1
+    return qf
+end
+
+function vimhelper.setCompletionDataToDict( d, data )
+    d.abbr = data:getSyntax()
+    d.word = data:getName()
+    -- d.word = data:getPlaceholder('$\\\\', '\\\\')
+    d.menu = data:getReturnType()
+    d.kind = data:getKind()
+    d.info = data:getFullSyntax()
+    d.icase = '1'
+    return d
+end
+
+function vimhelper.setLocationToDict( d, location )
+    if location then
+        d.lnum = location.line
+        d.col = location.column
+        d.filename = location.filename
+    end
+    return d
+end
+
+function vimhelper.prettyString( object )
+    local retstring = ''
+    if type( object ) == 'table' then
+        local items_string = ''
+        for key, val in pairs( object ) do
+            items_string = string.format(  '%s%s->%s, ',
+                                            items_string,
+                                            vimhelper.prettyString(key),
+                                            vimhelper.prettyString(val) )
+        end
+        retstring = '{' .. items_string .. '}'
+    elseif type( object ) == 'string' then
+        retstring = '"' .. object .. '"'
+    else
+        retstring = tostring( object )
+    end
+    return retstring
+end
 
 -- ** FlagsStore **
 FlagsStore = {}
@@ -122,7 +170,7 @@ function UserDataStore:new()
     }, UserDataStore_MT )
 end
 
-function UserDataStore:userDataForCurrentFile()
+function UserDataStore:makeUserData()
     --[[
     user_data {
         ["filename"] => current filename,
@@ -139,7 +187,7 @@ function UserDataStore:userDataForCurrentFile()
     user_data.filename = vim.eval( 'expand("%:p")' )
     user_data.line = vim.eval( 'line(".")' )
     user_data.column = vim.eval( 'col(".")' )
-    local filecontents = vimhelper.bufferData( user_data.filename )
+    local filecontents = vimhelper.bufferData( vim.buffer() )
     user_data.unsaved_files = { -- TODO: improve
         { filename = user_data.filename, contents=filecontents }
     }
@@ -156,7 +204,13 @@ function UserDataStore:flagsForFile( filename )
     return self.flags_store:flags( filename )
 end
 
+
 local _M = {
-    user_data_store = UserDataStore:new(),
+    user_data = UserDataStore:new(),
+    prettyString = vimhelper.prettyString,
+    setDiagnosticToQuickfix = vimhelper.setDiagnosticToQuickfix,
+    setCompletionDataToDict = vimhelper.setCompletionDataToDict,
+    setLocationToDict = vimhelper.setLocationToDict,
 }
+
 return _M
